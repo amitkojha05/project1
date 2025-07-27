@@ -14,49 +14,65 @@ export const useAuth = () => {
   return context
 }
 
+// Configure axios defaults
+axios.defaults.baseURL = process.env.REACT_APP_API_URL || "http://localhost:5000/api"
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // Configure axios defaults
-  const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api"
-  axios.defaults.baseURL = API_URL
-
+  // Set up axios interceptor for auth token
   useEffect(() => {
     const token = localStorage.getItem("token")
     if (token) {
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`
-      // Verify token is still valid
-      verifyToken()
-    } else {
-      setLoading(false)
+    }
+
+    // Response interceptor to handle token expiration
+    const responseInterceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          logout()
+          toast.error("Session expired. Please login again.")
+        }
+        return Promise.reject(error)
+      },
+    )
+
+    return () => {
+      axios.interceptors.response.eject(responseInterceptor)
     }
   }, [])
 
-  const verifyToken = async () => {
-    try {
-      const response = await axios.get("/projects")
-      // If request succeeds, token is valid
-      const userData = JSON.parse(localStorage.getItem("user"))
-      setUser(userData)
-    } catch (error) {
-      // Token is invalid, clear it
-      logout()
-    } finally {
+  // Check if user is logged in on app start
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem("token")
+      if (token) {
+        try {
+          const response = await axios.get("/auth/me")
+          setUser(response.data.user)
+        } catch (error) {
+          localStorage.removeItem("token")
+          delete axios.defaults.headers.common["Authorization"]
+        }
+      }
       setLoading(false)
     }
-  }
+
+    checkAuth()
+  }, [])
 
   const login = async (email, password) => {
     try {
       const response = await axios.post("/auth/login", { email, password })
-      const { token, user } = response.data
+      const { user, token } = response.data
 
       localStorage.setItem("token", token)
-      localStorage.setItem("user", JSON.stringify(user))
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`
-
       setUser(user)
+
       toast.success("Login successful!")
       return { success: true }
     } catch (error) {
@@ -66,16 +82,15 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const register = async (userData) => {
+  const register = async (email, password, role = "user") => {
     try {
-      const response = await axios.post("/auth/register", userData)
-      const { token, user } = response.data
+      const response = await axios.post("/auth/register", { email, password, role })
+      const { user, token } = response.data
 
       localStorage.setItem("token", token)
-      localStorage.setItem("user", JSON.stringify(user))
       axios.defaults.headers.common["Authorization"] = `Bearer ${token}`
-
       setUser(user)
+
       toast.success("Registration successful!")
       return { success: true }
     } catch (error) {
@@ -87,7 +102,6 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem("token")
-    localStorage.removeItem("user")
     delete axios.defaults.headers.common["Authorization"]
     setUser(null)
     toast.success("Logged out successfully")
@@ -99,7 +113,6 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     loading,
-    isAdmin: user?.role === "admin",
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

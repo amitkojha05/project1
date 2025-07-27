@@ -1,20 +1,18 @@
 {
   "name": "projecthub-frontend",
   "version": "1.0.0",
-  "description": "ProjectHub Frontend Dashboard",
+  "description": "Project Management Frontend",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.1",
-    "react-scripts": "5.0.1",
-    "axios": "^1.6.2",
-    "react-hook-form": "^7.48.2",
+    "react-router-dom": "^6.11.2",
+    "react-hook-form": "^7.44.3",
+    "axios": "^1.4.0",
     "react-hot-toast": "^2.4.1",
-    "lucide-react": "^0.294.0",
-    "@headlessui/react": "^1.7.17",
-    "clsx": "^2.0.0",
-    "tailwindcss": "^3.3.6"
+    "lucide-react": "^0.244.0",
+    "clsx": "^1.2.1",
+    "tailwind-merge": "^1.13.2"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -30,8 +28,9 @@
     "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
   },
   "devDependencies": {
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32"
-  },
-  "proxy": "http://localhost:5000"
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.2",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24"
+  }
 }

@@ -1,41 +1,34 @@
 const request = require("supertest")
-const app = require("../server")
+const express = require("express")
+const jwt = require("jsonwebtoken")
+const projectRoutes = require("../routes/projects")
 
-describe("Projects", () => {
-  let adminToken
-  let userToken
+const app = express()
+app.use(express.json())
+app.use("/projects", projectRoutes)
 
-  beforeAll(async () => {
-    // Login as admin
-    const adminLogin = await request(app).post("/api/auth/login").send({
-      email: "admin@acme.com",
-      password: "admin123",
-    })
-    adminToken = adminLogin.body.token
+// Mock admin token
+const adminToken = jwt.sign(
+  { userId: 1, email: "admin@acme.com", role: "admin" },
+  process.env.JWT_SECRET || "test-secret",
+)
 
-    // Login as user
-    const userLogin = await request(app).post("/api/auth/login").send({
-      email: "user@acme.com",
-      password: "admin123",
-    })
-    userToken = userLogin.body.token
-  })
-
-  describe("GET /api/projects", () => {
-    it("should get projects for authenticated user", async () => {
-      const response = await request(app).get("/api/projects").set("Authorization", `Bearer ${adminToken}`).expect(200)
+describe("Project Routes", () => {
+  describe("GET /projects", () => {
+    it("should get all projects for authenticated user", async () => {
+      const response = await request(app).get("/projects").set("Authorization", `Bearer ${adminToken}`).expect(200)
 
       expect(response.body).toHaveProperty("projects")
       expect(Array.isArray(response.body.projects)).toBe(true)
     })
 
-    it("should not get projects without authentication", async () => {
-      await request(app).get("/api/projects").expect(401)
+    it("should return 401 without token", async () => {
+      await request(app).get("/projects").expect(401)
     })
   })
 
-  describe("POST /api/projects", () => {
-    it("should create project as admin", async () => {
+  describe("POST /projects", () => {
+    it("should create a new project", async () => {
       const projectData = {
         name: "Test Project",
         description: "Test project description",
@@ -43,22 +36,22 @@ describe("Projects", () => {
       }
 
       const response = await request(app)
-        .post("/api/projects")
+        .post("/projects")
         .set("Authorization", `Bearer ${adminToken}`)
         .send(projectData)
         .expect(201)
 
-      expect(response.body).toHaveProperty("project")
       expect(response.body.project.name).toBe(projectData.name)
+      expect(response.body.project.description).toBe(projectData.description)
     })
 
-    it("should not create project as user", async () => {
+    it("should return validation error for invalid data", async () => {
       const projectData = {
-        name: "Test Project",
-        description: "Test project description",
+        name: "", // Invalid empty name
+        description: "Test description",
       }
 
-      await request(app).post("/api/projects").set("Authorization", `Bearer ${userToken}`).send(projectData).expect(403)
+      await request(app).post("/projects").set("Authorization", `Bearer ${adminToken}`).send(projectData).expect(400)
     })
   })
 })

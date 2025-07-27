@@ -1,24 +1,20 @@
 const { Pool } = require("pg")
+const logger = require("./logger") // Assuming you have a logger config
 
 const pool = new Pool({
-  host: process.env.DB_HOST || "localhost",
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || "projecthub",
-  user: process.env.DB_USER || "admin",
-  password: process.env.DB_PASSWORD || "password123",
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionString: process.env.DATABASE_URL,
+  max: 10, // maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
+  connectionTimeoutMillis: 2000, // how long to wait for a connection to be established
 })
 
-const connectDB = async () => {
-  try {
-    await pool.connect()
-    console.log("✅ PostgreSQL connected successfully")
-  } catch (error) {
-    console.error("❌ PostgreSQL connection failed:", error)
-    throw error
-  }
-}
+pool.on("connect", () => {
+  logger.info("New client connected to PostgreSQL")
+})
 
-module.exports = { pool, connectDB }
+pool.on("error", (err, client) => {
+  logger.error("Unexpected error on idle PostgreSQL client", err)
+  process.exit(-1) // Exit process if a critical database error occurs
+})
+
+module.exports = pool

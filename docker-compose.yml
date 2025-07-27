@@ -2,95 +2,85 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:13
+    restart: always
     environment:
       POSTGRES_DB: projecthub
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/migrations:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d projecthub"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:6-alpine
+    restart: always
     ports:
       - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.0.1
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:latest
-    depends_on:
-      - zookeeper
+    image: confluentinc/cp-kafka:7.0.1
+    hostname: kafka
+    container_name: kafka
     ports:
       - "9092:9092"
+      - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
 
   backend:
     build: ./backend
+    restart: always
     ports:
       - "5000:5000"
     environment:
       NODE_ENV: development
       PORT: 5000
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: projecthub
-      DB_USER: admin
-      DB_PASSWORD: password123
+      DATABASE_URL: postgres://user:password@postgres:5432/projecthub
+      JWT_SECRET: your_jwt_secret_key
       REDIS_URL: redis://redis:6379
-      KAFKA_BROKERS: kafka:9092
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      KAFKA_BROKER: kafka:9092
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - postgres
+      - redis
+      - kafka
     volumes:
       - ./backend:/app
-      - /app/node_modules
+      - /app/node_modules # Exclude node_modules from host mount to prevent issues
 
   frontend:
     build: ./frontend
+    restart: always
     ports:
       - "3000:3000"
     environment:
-      REACT_APP_API_URL: http://localhost:5000/api
+      NODE_ENV: development
+      REACT_APP_API_BASE_URL: http://localhost:5000/api
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
-      - /app/node_modules
+      - /app/node_modules # Exclude node_modules from host mount to prevent issues
 
 volumes:
   postgres_data:

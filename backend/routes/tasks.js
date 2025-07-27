@@ -1,198 +1,223 @@
 const express = require("express")
 const Joi = require("joi")
-const { pool } = require("../config/database")
-const { publishEvent } = require("../config/kafka")
-const { authenticateToken, requireRole } = require("../middleware/auth")
+const { authenticateToken, authorizeRole } = require("../middleware/auth")
+const logger = require("../config/logger") // Assuming you have a logger config
 
 const router = express.Router()
 
+// Joi schema for task creation/update
 const taskSchema = Joi.object({
-  title: Joi.string().required(),
-  description: Joi.string().allow(""),
-  status: Joi.string().valid("todo", "in_progress", "completed").default("todo"),
-  priority: Joi.string().valid("low", "medium", "high").default("medium"),
+  project_id: Joi.number().integer().required(),
+  title: Joi.string().min(3).max(255).required(),
+  description: Joi.string().max(1000).allow(""),
+  status: Joi.string().valid("todo", "in-progress", "done").default("todo"),
   due_date: Joi.date().allow(null),
 })
 
-// Apply authentication to all routes
-router.use(authenticateToken)
-
-// Get all tasks for a project
-router.get("/project/:projectId", async (req, res, next) => {
+// Get all tasks for a project (User and Admin)
+router.get("/project/:projectId", authenticateToken, async (req, res, next) => {
   try {
-    // Verify project belongs to user's tenant
-    const projectCheck = await pool.query("SELECT id FROM projects WHERE id = $1 AND tenant_id = $2", [
-      req.params.projectId,
-      req.user.tenant_id,
-    ])
+    const { pool } = req
+    const { projectId } = req.params
+    const userId = req.user.id
+    const userRole = req.user.role
 
-    if (projectCheck.rows.length === 0) {
-      return res.status(404).json({ error: "Project not found" })
+    // First, verify user has access to the project
+    let projectQuery = "SELECT id FROM projects WHERE id = $1 AND user_id = $2"
+    let projectParams = [projectId, userId]
+
+    if (userRole === "admin") {
+      projectQuery = "SELECT id FROM projects WHERE id = $1"
+      projectParams = [projectId]
+    }
+
+    const projectResult = await pool.query(projectQuery, projectParams)
+    if (projectResult.rows.length === 0) {
+      return res.status(404).json({ message: "Project not found or you do not have access" })
     }
 
     const result = await pool.query(
-      "SELECT id, title, description, status, priority, due_date, created_at, updated_at FROM tasks WHERE project_id = $1 ORDER BY created_at DESC",
-      [req.params.projectId],
+      "SELECT id, project_id, title, description, status, due_date, created_at, updated_at FROM tasks WHERE project_id = $1 ORDER BY created_at DESC",
+      [projectId],
     )
-
-    res.json({ tasks: result.rows })
-  } catch (error) {
-    next(error)
+    res.status(200).json(result.rows)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Get single task
-router.get("/:id", async (req, res, next) => {
+// Get a single task (User and Admin)
+router.get("/:id", authenticateToken, async (req, res, next) => {
   try {
-    const result = await pool.query(
-      `
-      SELECT t.id, t.title, t.description, t.status, t.priority, t.due_date, t.created_at, t.updated_at, t.project_id
-      FROM tasks t
-      JOIN projects p ON t.project_id = p.id
-      WHERE t.id = $1 AND p.tenant_id = $2
-    `,
-      [req.params.id, req.user.tenant_id],
-    )
+    const { pool } = req
+    const { id } = req.params
+    const userId = req.user.id
+    const userRole = req.user.role
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Task not found" })
+    const result = await pool.query(
+      `SELECT t.id, t.project_id, t.title, t.description, t.status, t.due_date, t.created_at, t.updated_at
+       FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       WHERE t.id = $1 AND (p.user_id = $2 OR $3 = 'admin')`,
+      [id, userId, userRole],
+    )
+    const task = result.rows[0]
+
+    if (!task) {
+      return res.status(404).json({ message: "Task not found or you do not have access" })
     }
 
-    res.json({ task: result.rows[0] })
-  } catch (error) {
-    next(error)
+    res.status(200).json(task)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Create task (admin only)
-router.post("/project/:projectId", requireRole(["admin"]), async (req, res, next) => {
+// Create a new task (Admin only)
+router.post("/", authenticateToken, authorizeRole(["admin"]), async (req, res, next) => {
   try {
     const { error, value } = taskSchema.validate(req.body)
-    if (error) throw error
-
-    // Verify project belongs to user's tenant
-    const projectCheck = await pool.query("SELECT id FROM projects WHERE id = $1 AND tenant_id = $2", [
-      req.params.projectId,
-      req.user.tenant_id,
-    ])
-
-    if (projectCheck.rows.length === 0) {
-      return res.status(404).json({ error: "Project not found" })
+    if (error) {
+      error.statusCode = 400
+      throw error
     }
 
-    const { title, description, status, priority, due_date } = value
+    const { project_id, title, description, status, due_date } = value
+    const { pool, kafkaProducer } = req
+    const userId = req.user.id
+
+    // Verify project exists and belongs to an admin (or is generally accessible if admin creates)
+    const projectResult = await pool.query("SELECT id FROM projects WHERE id = $1", [project_id])
+    if (projectResult.rows.length === 0) {
+      return res.status(404).json({ message: "Project not found" })
+    }
 
     const result = await pool.query(
-      "INSERT INTO tasks (title, description, status, priority, due_date, project_id, created_by, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW()) RETURNING *",
-      [title, description, status, priority, due_date, req.params.projectId, req.user.id],
+      "INSERT INTO tasks (project_id, title, description, status, due_date) VALUES ($1, $2, $3, $4, $5) RETURNING id, project_id, title, description, status, due_date, created_at, updated_at",
+      [project_id, title, description, status, due_date],
     )
+    const newTask = result.rows[0]
 
-    const task = result.rows[0]
-
-    // Publish event
-    await publishEvent("task.created", {
-      taskId: task.id,
-      title: task.title,
-      projectId: req.params.projectId,
-      tenantId: req.user.tenant_id,
-      createdBy: req.user.id,
-      timestamp: new Date().toISOString(),
+    // Publish Kafka event
+    await kafkaProducer.send({
+      topic: "task-events",
+      messages: [
+        {
+          key: newTask.id.toString(),
+          value: JSON.stringify({
+            type: "TASK_CREATED",
+            taskId: newTask.id,
+            projectId: newTask.project_id,
+            title: newTask.title,
+            userId: userId,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      ],
     })
+    logger.info(`Task created: ${newTask.title} for project ${newTask.project_id} by user ${userId}`)
 
-    res.status(201).json({
-      message: "Task created successfully",
-      task,
-    })
-  } catch (error) {
-    next(error)
+    res.status(201).json(newTask)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Update task (admin only)
-router.put("/:id", requireRole(["admin"]), async (req, res, next) => {
+// Update a task (Admin only)
+router.put("/:id", authenticateToken, authorizeRole(["admin"]), async (req, res, next) => {
   try {
     const { error, value } = taskSchema.validate(req.body)
-    if (error) throw error
-
-    const { title, description, status, priority, due_date } = value
-
-    const result = await pool.query(
-      `
-      UPDATE tasks SET 
-        title = $1, 
-        description = $2, 
-        status = $3, 
-        priority = $4, 
-        due_date = $5, 
-        updated_at = NOW() 
-      FROM projects p 
-      WHERE tasks.id = $6 
-        AND tasks.project_id = p.id 
-        AND p.tenant_id = $7 
-      RETURNING tasks.*
-    `,
-      [title, description, status, priority, due_date, req.params.id, req.user.tenant_id],
-    )
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Task not found" })
+    if (error) {
+      error.statusCode = 400
+      throw error
     }
 
-    const task = result.rows[0]
+    const { project_id, title, description, status, due_date } = value
+    const { pool, kafkaProducer } = req
+    const { id } = req.params
+    const userId = req.user.id
 
-    // Publish event
-    await publishEvent("task.updated", {
-      taskId: task.id,
-      title: task.title,
-      projectId: task.project_id,
-      tenantId: req.user.tenant_id,
-      updatedBy: req.user.id,
-      timestamp: new Date().toISOString(),
-    })
+    // Verify project exists and belongs to an admin (or is generally accessible if admin updates)
+    const projectResult = await pool.query("SELECT id FROM projects WHERE id = $1", [project_id])
+    if (projectResult.rows.length === 0) {
+      return res.status(404).json({ message: "Project not found" })
+    }
 
-    res.json({
-      message: "Task updated successfully",
-      task,
+    const result = await pool.query(
+      "UPDATE tasks SET project_id = $1, title = $2, description = $3, status = $4, due_date = $5, updated_at = NOW() WHERE id = $6 RETURNING id, project_id, title, description, status, due_date, created_at, updated_at",
+      [project_id, title, description, status, due_date, id],
+    )
+    const updatedTask = result.rows[0]
+
+    if (!updatedTask) {
+      return res.status(404).json({ message: "Task not found" })
+    }
+
+    // Publish Kafka event
+    await kafkaProducer.send({
+      topic: "task-events",
+      messages: [
+        {
+          key: updatedTask.id.toString(),
+          value: JSON.stringify({
+            type: "TASK_UPDATED",
+            taskId: updatedTask.id,
+            projectId: updatedTask.project_id,
+            title: updatedTask.title,
+            userId: userId,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      ],
     })
-  } catch (error) {
-    next(error)
+    logger.info(
+      `Task updated: ${updatedTask.title} (ID: ${updatedTask.id}) for project ${updatedTask.project_id} by user ${userId}`,
+    )
+
+    res.status(200).json(updatedTask)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Delete task (admin only)
-router.delete("/:id", requireRole(["admin"]), async (req, res, next) => {
+// Delete a task (Admin only)
+router.delete("/:id", authenticateToken, authorizeRole(["admin"]), async (req, res, next) => {
   try {
-    const result = await pool.query(
-      `
-      DELETE FROM tasks 
-      USING projects p 
-      WHERE tasks.id = $1 
-        AND tasks.project_id = p.id 
-        AND p.tenant_id = $2 
-      RETURNING tasks.id, tasks.title, tasks.project_id
-    `,
-      [req.params.id, req.user.tenant_id],
-    )
+    const { pool, kafkaProducer } = req
+    const { id } = req.params
+    const userId = req.user.id
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Task not found" })
+    const result = await pool.query("DELETE FROM tasks WHERE id = $1 RETURNING id, title, project_id", [id])
+    const deletedTask = result.rows[0]
+
+    if (!deletedTask) {
+      return res.status(404).json({ message: "Task not found" })
     }
 
-    const task = result.rows[0]
-
-    // Publish event
-    await publishEvent("task.deleted", {
-      taskId: task.id,
-      title: task.title,
-      projectId: task.project_id,
-      tenantId: req.user.tenant_id,
-      deletedBy: req.user.id,
-      timestamp: new Date().toISOString(),
+    // Publish Kafka event
+    await kafkaProducer.send({
+      topic: "task-events",
+      messages: [
+        {
+          key: deletedTask.id.toString(),
+          value: JSON.stringify({
+            type: "TASK_DELETED",
+            taskId: deletedTask.id,
+            projectId: deletedTask.project_id,
+            title: deletedTask.title,
+            userId: userId,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      ],
     })
+    logger.info(
+      `Task deleted: ${deletedTask.title} (ID: ${deletedTask.id}) from project ${deletedTask.project_id} by user ${userId}`,
+    )
 
-    res.json({ message: "Task deleted successfully" })
-  } catch (error) {
-    next(error)
+    res.status(204).send() // No content
+  } catch (err) {
+    next(err)
   }
 })
 

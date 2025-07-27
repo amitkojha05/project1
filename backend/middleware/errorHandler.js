@@ -1,36 +1,21 @@
+const logger = require("../config/logger") // Assuming you have a logger config
+
 const errorHandler = (err, req, res, next) => {
-  console.error("Error:", err)
+  logger.error(`Error: ${err.message}`, { stack: err.stack, path: req.path, method: req.method })
 
-  // Joi validation errors
-  if (err.isJoi) {
-    return res.status(400).json({
-      error: "Validation error",
-      details: err.details.map((detail) => detail.message),
-    })
+  if (err.name === "ValidationError") {
+    return res.status(400).json({ message: err.message, details: err.details })
   }
 
-  // JWT errors
-  if (err.name === "JsonWebTokenError") {
-    return res.status(401).json({ error: "Invalid token" })
+  if (err.name === "UnauthorizedError") {
+    // For JWT errors from express-jwt if used
+    return res.status(401).json({ message: "Unauthorized: Invalid token" })
   }
 
-  if (err.name === "TokenExpiredError") {
-    return res.status(401).json({ error: "Token expired" })
-  }
-
-  // Database errors
-  if (err.code === "23505") {
-    return res.status(409).json({ error: "Resource already exists" })
-  }
-
-  if (err.code === "23503") {
-    return res.status(400).json({ error: "Referenced resource not found" })
-  }
-
-  // Default error
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+  // Generic error response
+  res.status(err.statusCode || 500).json({
+    message: err.message || "An unexpected error occurred",
+    error: process.env.NODE_ENV === "development" ? err.stack : {}, // Only send stack in dev
   })
 }
 

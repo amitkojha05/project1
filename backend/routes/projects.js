@@ -1,179 +1,226 @@
 const express = require("express")
 const Joi = require("joi")
-const { pool } = require("../config/database")
-const { getRedisClient } = require("../config/redis")
-const { publishEvent } = require("../config/kafka")
-const { authenticateToken, requireRole } = require("../middleware/auth")
+const { authenticateToken, authorizeRole } = require("../middleware/auth")
+const logger = require("../config/logger") // Assuming you have a logger config
 
 const router = express.Router()
 
+// Joi schema for project creation/update
 const projectSchema = Joi.object({
-  name: Joi.string().required(),
-  description: Joi.string().allow(""),
-  status: Joi.string().valid("active", "completed", "on_hold").default("active"),
+  name: Joi.string().min(3).max(255).required(),
+  description: Joi.string().max(1000).allow(""),
+  status: Joi.string().valid("pending", "in-progress", "completed").default("pending"),
 })
 
-// Apply authentication to all routes
-router.use(authenticateToken)
-
-// Get all projects (with caching)
-router.get("/", async (req, res, next) => {
+// Get all projects (with Redis caching)
+router.get("/", authenticateToken, async (req, res, next) => {
   try {
-    const cacheKey = `projects:${req.user.tenant_id}`
-    const redis = getRedisClient()
+    const { pool, redisClient } = req
+    const userId = req.user.id
+    const userRole = req.user.role
+
+    const cacheKey = `projects:${userId}`
 
     // Try to get from cache
-    const cached = await redis.get(cacheKey)
-    if (cached) {
-      return res.json({
-        projects: JSON.parse(cached),
-        cached: true,
-      })
+    const cachedProjects = await redisClient.get(cacheKey)
+    if (cachedProjects) {
+      logger.info(`Projects for user ${userId} served from Redis cache`)
+      return res.status(200).json(JSON.parse(cachedProjects))
     }
 
-    // Get from database
-    const result = await pool.query(
-      "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC",
-      [req.user.tenant_id],
-    )
+    let query =
+      "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE user_id = $1 ORDER BY created_at DESC"
+    let params = [userId]
 
+    // Admins can see all projects
+    if (userRole === "admin") {
+      query = "SELECT id, name, description, status, created_at, updated_at FROM projects ORDER BY created_at DESC"
+      params = []
+    }
+
+    const result = await pool.query(query, params)
     const projects = result.rows
 
-    // Cache for 1 minute
-    await redis.setEx(cacheKey, 60, JSON.stringify(projects))
+    // Cache the result for 1 minute (60 seconds)
+    await redisClient.setEx(cacheKey, 60, JSON.stringify(projects))
+    logger.info(`Projects for user ${userId} fetched from DB and cached`)
 
-    res.json({ projects, cached: false })
-  } catch (error) {
-    next(error)
+    res.status(200).json(projects)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Get single project
-router.get("/:id", async (req, res, next) => {
+// Get a single project
+router.get("/:id", authenticateToken, async (req, res, next) => {
   try {
-    const result = await pool.query(
-      "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = $1 AND tenant_id = $2",
-      [req.params.id, req.user.tenant_id],
-    )
+    const { pool } = req
+    const { id } = req.params
+    const userId = req.user.id
+    const userRole = req.user.role
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Project not found" })
+    let query =
+      "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = $1 AND user_id = $2"
+    let params = [id, userId]
+
+    if (userRole === "admin") {
+      query = "SELECT id, name, description, status, created_at, updated_at FROM projects WHERE id = $1"
+      params = [id]
     }
 
-    res.json({ project: result.rows[0] })
-  } catch (error) {
-    next(error)
+    const result = await pool.query(query, params)
+    const project = result.rows[0]
+
+    if (!project) {
+      return res.status(404).json({ message: "Project not found or you do not have access" })
+    }
+
+    res.status(200).json(project)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Create project (admin only)
-router.post("/", requireRole(["admin"]), async (req, res, next) => {
+// Create a new project (Admin only)
+router.post("/", authenticateToken, authorizeRole(["admin"]), async (req, res, next) => {
   try {
     const { error, value } = projectSchema.validate(req.body)
-    if (error) throw error
+    if (error) {
+      error.statusCode = 400
+      throw error
+    }
 
     const { name, description, status } = value
+    const { pool, redisClient, kafkaProducer } = req
+    const userId = req.user.id // Associate project with the creating admin user
 
     const result = await pool.query(
-      "INSERT INTO projects (name, description, status, tenant_id, created_by, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING *",
-      [name, description, status, req.user.tenant_id, req.user.id],
+      "INSERT INTO projects (name, description, status, user_id) VALUES ($1, $2, $3, $4) RETURNING id, name, description, status, created_at, updated_at",
+      [name, description, status, userId],
     )
+    const newProject = result.rows[0]
 
-    const project = result.rows[0]
+    // Invalidate cache for all users (or specific user if not admin)
+    await redisClient.del(`projects:${userId}`) // Invalidate cache for the creating user
+    // If admin creates, it might affect other admin views, so a more general invalidation might be needed
+    // For simplicity, we'll just invalidate the creating user's cache.
 
-    // Clear cache
-    const redis = getRedisClient()
-    await redis.del(`projects:${req.user.tenant_id}`)
-
-    // Publish event
-    await publishEvent("project.created", {
-      projectId: project.id,
-      name: project.name,
-      tenantId: req.user.tenant_id,
-      createdBy: req.user.id,
-      timestamp: new Date().toISOString(),
+    // Publish Kafka event
+    await kafkaProducer.send({
+      topic: "project-events",
+      messages: [
+        {
+          key: newProject.id.toString(),
+          value: JSON.stringify({
+            type: "PROJECT_CREATED",
+            projectId: newProject.id,
+            projectName: newProject.name,
+            userId: userId,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      ],
     })
+    logger.info(`Project created: ${newProject.name} by user ${userId}`)
 
-    res.status(201).json({
-      message: "Project created successfully",
-      project,
-    })
-  } catch (error) {
-    next(error)
+    res.status(201).json(newProject)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Update project (admin only)
-router.put("/:id", requireRole(["admin"]), async (req, res, next) => {
+// Update a project (Admin only)
+router.put("/:id", authenticateToken, authorizeRole(["admin"]), async (req, res, next) => {
   try {
     const { error, value } = projectSchema.validate(req.body)
-    if (error) throw error
-
-    const { name, description, status } = value
-
-    const result = await pool.query(
-      "UPDATE projects SET name = $1, description = $2, status = $3, updated_at = NOW() WHERE id = $4 AND tenant_id = $5 RETURNING *",
-      [name, description, status, req.params.id, req.user.tenant_id],
-    )
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Project not found" })
+    if (error) {
+      error.statusCode = 400
+      throw error
     }
 
-    const project = result.rows[0]
+    const { name, description, status } = value
+    const { pool, redisClient, kafkaProducer } = req
+    const { id } = req.params
+    const userId = req.user.id
 
-    // Clear cache
-    const redis = getRedisClient()
-    await redis.del(`projects:${req.user.tenant_id}`)
+    const result = await pool.query(
+      "UPDATE projects SET name = $1, description = $2, status = $3, updated_at = NOW() WHERE id = $4 RETURNING id, name, description, status, created_at, updated_at",
+      [name, description, status, id],
+    )
+    const updatedProject = result.rows[0]
 
-    // Publish event
-    await publishEvent("project.updated", {
-      projectId: project.id,
-      name: project.name,
-      tenantId: req.user.tenant_id,
-      updatedBy: req.user.id,
-      timestamp: new Date().toISOString(),
+    if (!updatedProject) {
+      return res.status(404).json({ message: "Project not found" })
+    }
+
+    // Invalidate cache for all users (or specific user if not admin)
+    await redisClient.del(`projects:${userId}`) // Invalidate cache for the updating user
+
+    // Publish Kafka event
+    await kafkaProducer.send({
+      topic: "project-events",
+      messages: [
+        {
+          key: updatedProject.id.toString(),
+          value: JSON.stringify({
+            type: "PROJECT_UPDATED",
+            projectId: updatedProject.id,
+            projectName: updatedProject.name,
+            userId: userId,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      ],
     })
+    logger.info(`Project updated: ${updatedProject.name} (ID: ${updatedProject.id}) by user ${userId}`)
 
-    res.json({
-      message: "Project updated successfully",
-      project,
-    })
-  } catch (error) {
-    next(error)
+    res.status(200).json(updatedProject)
+  } catch (err) {
+    next(err)
   }
 })
 
-// Delete project (admin only)
-router.delete("/:id", requireRole(["admin"]), async (req, res, next) => {
+// Delete a project (Admin only)
+router.delete("/:id", authenticateToken, authorizeRole(["admin"]), async (req, res, next) => {
   try {
-    const result = await pool.query("DELETE FROM projects WHERE id = $1 AND tenant_id = $2 RETURNING id, name", [
-      req.params.id,
-      req.user.tenant_id,
-    ])
+    const { pool, redisClient, kafkaProducer } = req
+    const { id } = req.params
+    const userId = req.user.id
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Project not found" })
+    // First, delete associated tasks
+    await pool.query("DELETE FROM tasks WHERE project_id = $1", [id])
+
+    const result = await pool.query("DELETE FROM projects WHERE id = $1 RETURNING id, name", [id])
+    const deletedProject = result.rows[0]
+
+    if (!deletedProject) {
+      return res.status(404).json({ message: "Project not found" })
     }
 
-    const project = result.rows[0]
+    // Invalidate cache for all users (or specific user if not admin)
+    await redisClient.del(`projects:${userId}`) // Invalidate cache for the deleting user
 
-    // Clear cache
-    const redis = getRedisClient()
-    await redis.del(`projects:${req.user.tenant_id}`)
-
-    // Publish event
-    await publishEvent("project.deleted", {
-      projectId: project.id,
-      name: project.name,
-      tenantId: req.user.tenant_id,
-      deletedBy: req.user.id,
-      timestamp: new Date().toISOString(),
+    // Publish Kafka event
+    await kafkaProducer.send({
+      topic: "project-events",
+      messages: [
+        {
+          key: deletedProject.id.toString(),
+          value: JSON.stringify({
+            type: "PROJECT_DELETED",
+            projectId: deletedProject.id,
+            projectName: deletedProject.name,
+            userId: userId,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      ],
     })
+    logger.info(`Project deleted: ${deletedProject.name} (ID: ${deletedProject.id}) by user ${userId}`)
 
-    res.json({ message: "Project deleted successfully" })
-  } catch (error) {
-    next(error)
+    res.status(204).send() // No content
+  } catch (err) {
+    next(err)
   }
 })
 

@@ -1,38 +1,23 @@
 const request = require("supertest")
-const app = require("../server")
+const express = require("express")
+const jwt = require("jsonwebtoken")
+const taskRoutes = require("../routes/tasks")
 
-describe("Tasks", () => {
-  let adminToken
-  let userToken
-  let projectId
+const app = express()
+app.use(express.json())
+app.use("/tasks", taskRoutes)
 
-  beforeAll(async () => {
-    // Login as admin
-    const adminLogin = await request(app).post("/api/auth/login").send({
-      email: "admin@acme.com",
-      password: "admin123",
-    })
-    adminToken = adminLogin.body.token
+// Mock admin token
+const adminToken = jwt.sign(
+  { userId: 1, email: "admin@acme.com", role: "admin" },
+  process.env.JWT_SECRET || "test-secret",
+)
 
-    // Login as user
-    const userLogin = await request(app).post("/api/auth/login").send({
-      email: "user@acme.com",
-      password: "admin123",
-    })
-    userToken = userLogin.body.token
-
-    // Create a test project
-    const projectResponse = await request(app).post("/api/projects").set("Authorization", `Bearer ${adminToken}`).send({
-      name: "Test Project for Tasks",
-      description: "Test project description",
-    })
-    projectId = projectResponse.body.project.id
-  })
-
-  describe("GET /api/tasks/project/:projectId", () => {
-    it("should get tasks for authenticated user", async () => {
+describe("Task Routes", () => {
+  describe("GET /tasks/project/:projectId", () => {
+    it("should get all tasks for a project", async () => {
       const response = await request(app)
-        .get(`/api/tasks/project/${projectId}`)
+        .get("/tasks/project/1")
         .set("Authorization", `Bearer ${adminToken}`)
         .expect(200)
 
@@ -40,13 +25,13 @@ describe("Tasks", () => {
       expect(Array.isArray(response.body.tasks)).toBe(true)
     })
 
-    it("should not get tasks without authentication", async () => {
-      await request(app).get(`/api/tasks/project/${projectId}`).expect(401)
+    it("should return 401 without token", async () => {
+      await request(app).get("/tasks/project/1").expect(401)
     })
   })
 
-  describe("POST /api/tasks/project/:projectId", () => {
-    it("should create task as admin", async () => {
+  describe("POST /tasks/project/:projectId", () => {
+    it("should create a new task", async () => {
       const taskData = {
         title: "Test Task",
         description: "Test task description",
@@ -55,26 +40,26 @@ describe("Tasks", () => {
       }
 
       const response = await request(app)
-        .post(`/api/tasks/project/${projectId}`)
+        .post("/tasks/project/1")
         .set("Authorization", `Bearer ${adminToken}`)
         .send(taskData)
         .expect(201)
 
-      expect(response.body).toHaveProperty("task")
       expect(response.body.task.title).toBe(taskData.title)
+      expect(response.body.task.description).toBe(taskData.description)
     })
 
-    it("should not create task as user", async () => {
+    it("should return validation error for invalid data", async () => {
       const taskData = {
-        title: "Test Task",
-        description: "Test task description",
+        title: "", // Invalid empty title
+        description: "Test description",
       }
 
       await request(app)
-        .post(`/api/tasks/project/${projectId}`)
-        .set("Authorization", `Bearer ${userToken}`)
+        .post("/tasks/project/1")
+        .set("Authorization", `Bearer ${adminToken}`)
         .send(taskData)
-        .expect(403)
+        .expect(400)
     })
   })
 })

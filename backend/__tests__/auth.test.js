@@ -1,56 +1,59 @@
 const request = require("supertest")
-const app = require("../server")
+const express = require("express")
+const authRoutes = require("../routes/auth")
 
-describe("Authentication", () => {
-  describe("POST /api/auth/register", () => {
+const app = express()
+app.use(express.json())
+app.use("/auth", authRoutes)
+
+describe("Auth Routes", () => {
+  describe("POST /auth/register", () => {
     it("should register a new user", async () => {
       const userData = {
         email: "test@example.com",
         password: "password123",
         role: "user",
-        tenant_name: "Test Company",
       }
 
-      const response = await request(app).post("/api/auth/register").send(userData).expect(201)
+      const response = await request(app).post("/auth/register").send(userData).expect(201)
 
       expect(response.body).toHaveProperty("token")
-      expect(response.body).toHaveProperty("user")
       expect(response.body.user.email).toBe(userData.email)
+      expect(response.body.user.role).toBe(userData.role)
     })
 
-    it("should not register user with invalid email", async () => {
+    it("should return validation error for invalid email", async () => {
       const userData = {
         email: "invalid-email",
         password: "password123",
-        tenant_name: "Test Company",
       }
 
-      const response = await request(app).post("/api/auth/register").send(userData).expect(400)
+      const response = await request(app).post("/auth/register").send(userData).expect(400)
 
       expect(response.body).toHaveProperty("error")
     })
   })
 
-  describe("POST /api/auth/login", () => {
+  describe("POST /auth/login", () => {
     it("should login with valid credentials", async () => {
       const loginData = {
         email: "admin@acme.com",
         password: "admin123",
       }
 
-      const response = await request(app).post("/api/auth/login").send(loginData).expect(200)
+      const response = await request(app).post("/auth/login").send(loginData).expect(200)
 
       expect(response.body).toHaveProperty("token")
-      expect(response.body).toHaveProperty("user")
+      expect(response.body.user.email).toBe(loginData.email)
     })
 
-    it("should not login with invalid credentials", async () => {
+    it("should return error for invalid credentials", async () => {
       const loginData = {
         email: "admin@acme.com",
         password: "wrongpassword",
       }
 
-      const response = await request(app).post("/api/auth/login").send(loginData).expect(401)
+      const response = await request(app).post("/auth/login").send(loginData).expect(401)
 
       expect(response.body).toHaveProperty("error")
     })

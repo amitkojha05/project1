@@ -1,44 +1,31 @@
 const { Kafka } = require("kafkajs")
+const logger = require("./logger") // Assuming you have a logger config
 
-let kafka
-let producer
-let consumer
+const kafka = new Kafka({
+  clientId: "projecthub-backend",
+  brokers: [process.env.KAFKA_BROKER || "localhost:9092"],
+})
 
-const connectKafka = async () => {
+const producer = kafka.producer()
+
+// Connect producer on module load
+producer
+  .connect()
+  .then(() => {
+    logger.info("Kafka Producer connected")
+  })
+  .catch((err) => {
+    logger.error("Kafka Producer connection failed", err)
+  })
+
+// Disconnect producer on process exit
+process.on("beforeExit", async () => {
   try {
-    kafka = new Kafka({
-      clientId: "projecthub-api",
-      brokers: [process.env.KAFKA_BROKERS || "localhost:9092"],
-    })
-
-    producer = kafka.producer()
-    await producer.connect()
-
-    consumer = kafka.consumer({ groupId: "projecthub-group" })
-    await consumer.connect()
-
-    console.log("✅ Kafka connected successfully")
+    await producer.disconnect()
+    logger.info("Kafka Producer disconnected")
   } catch (error) {
-    console.error("❌ Kafka connection failed:", error)
-    throw error
+    logger.error("Error disconnecting Kafka Producer", error)
   }
-}
+})
 
-const publishEvent = async (topic, message) => {
-  try {
-    await producer.send({
-      topic,
-      messages: [
-        {
-          key: message.id || Date.now().toString(),
-          value: JSON.stringify(message),
-          timestamp: Date.now().toString(),
-        },
-      ],
-    })
-  } catch (error) {
-    console.error("Failed to publish event:", error)
-  }
-}
-
-module.exports = { connectKafka, publishEvent }
+module.exports = producer

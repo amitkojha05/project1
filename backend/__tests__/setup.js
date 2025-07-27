@@ -1,12 +1,19 @@
-const { pool } = require("../config/database")
-const { beforeAll, afterAll } = require("@jest/globals")
+const { connectDB } = require("../config/database")
+const jest = require("jest")
 
-// Setup test database
 beforeAll(async () => {
-  // Run migrations or setup test data if needed
+  await connectDB()
 })
 
-// Cleanup after tests
-afterAll(async () => {
-  await pool.end()
-})
+// Mock Redis for tests
+jest.mock("../config/redis", () => ({
+  get: jest.fn(),
+  set: jest.fn(),
+  del: jest.fn(),
+  flushPattern: jest.fn(),
+}))
+
+// Mock Kafka for tests
+jest.mock("../config/kafka", () => ({
+  publishEvent: jest.fn(),
+}))

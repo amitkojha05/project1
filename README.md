@@ -1,45 +1,44 @@
 # ProjectHub - Multi-Tenant Project Management Tool
 
-A comprehensive full-stack project management application built with Node.js, React, PostgreSQL, Redis, and Kafka.
+A full-stack project management application built with Node.js, React, PostgreSQL, Redis, and Kafka. This application demonstrates modern web development practices including JWT authentication, role-based access control, caching, and event-driven architecture.
 
 ## 🚀 Features
 
 ### Backend
-- **REST API** with Express.js
+- **REST API** with Node.js and Express
 - **JWT Authentication** with role-based access control (Admin/User)
 - **PostgreSQL** database with migrations
-- **Redis caching** for improved performance
-- **Kafka events** for real-time notifications
-- **Multi-tenant architecture**
-- **Comprehensive error handling**
-- **Rate limiting** and security middleware
+- **Redis caching** for improved performance (1-minute TTL for projects)
+- **Kafka events** for real-time notifications on CRUD operations
+- **Comprehensive error handling** and validation
+- **Unit tests** with Jest and Supertest
 
 ### Frontend
-- **React** with modern hooks and context
-- **Role-based route protection**
+- **React** application with modern hooks and context
+- **Role-based route protection** (Admin can edit, Users can view)
 - **Responsive design** with Tailwind CSS
-- **Real-time notifications**
-- **Form validation** with react-hook-form
-- **Professional UI components**
+- **Real-time notifications** with React Hot Toast
+- **Form validation** with React Hook Form
+- **Professional UI** with modern components
 
 ### Infrastructure
 - **Docker Compose** setup for easy deployment
 - **Health checks** for all services
 - **Environment-based configuration**
-- **Automated database migrations**
+- **Graceful shutdown handling**
 
 ## 🏗️ Architecture
 
 \`\`\`
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   React App     │    │   Node.js API   │    │   PostgreSQL    │
-│   (Frontend)    │◄──►│   (Backend)     │◄──►│   (Database)    │
+│   React Frontend │────│   Node.js API   │────│   PostgreSQL    │
+│   (Port 3000)   │    │   (Port 5000)   │    │   (Port 5432)   │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                               │                         │
-                              ▼                         ▼
+                              │                         │
                        ┌─────────────────┐    ┌─────────────────┐
-                       │     Redis       │    │     Kafka       │
-                       │   (Caching)     │    │   (Events)      │
+                       │      Redis      │    │      Kafka      │
+                       │   (Port 6379)   │    │   (Port 9092)   │
                        └─────────────────┘    └─────────────────┘
 \`\`\`
 
@@ -47,230 +46,188 @@ A comprehensive full-stack project management application built with Node.js, Re
 
 **Backend:**
 - Node.js + Express.js
-- PostgreSQL with pg driver
-- Redis for caching
-- Kafka for event streaming
-- JWT for authentication
-- Joi for validation
-- Jest for testing
+- PostgreSQL (Database)
+- Redis (Caching)
+- Kafka (Event Streaming)
+- JWT (Authentication)
+- Joi (Validation)
+- Jest + Supertest (Testing)
 
 **Frontend:**
-- React 18 with hooks
-- React Router for navigation
-- Tailwind CSS for styling
-- Axios for API calls
-- React Hook Form for forms
-- React Hot Toast for notifications
+- React 18
+- React Router DOM
+- React Hook Form
+- Axios (HTTP Client)
+- Tailwind CSS
+- React Hot Toast
+- Lucide React (Icons)
 
 **Infrastructure:**
 - Docker & Docker Compose
 - PostgreSQL 15
 - Redis 7
-- Apache Kafka with Zookeeper
+- Kafka (Confluent Platform)
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Docker and Docker Compose
-- Node.js 18+ (for local development)
 - Git
 
-### 1. Clone the Repository
+### Installation
+
+1. **Clone the repository**
 \`\`\`bash
 git clone <repository-url>
 cd projecthub
 \`\`\`
 
-### 2. Start with Docker Compose
+2. **Start the application**
 \`\`\`bash
-# Start all services
 docker-compose up -d
+\`\`\`
 
-# Check service status
+3. **Wait for services to be ready** (about 2-3 minutes for first startup)
+\`\`\`bash
+# Check service health
 docker-compose ps
-
-# View logs
-docker-compose logs -f
 \`\`\`
 
-### 3. Access the Application
-- **Frontend:** http://localhost:3000
-- **Backend API:** http://localhost:5000
-- **Health Check:** http://localhost:5000/health
+4. **Access the application**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:5000
+- Health Check: http://localhost:5000/health
 
-### 4. Demo Credentials
-\`\`\`
-Admin User:
-Email: admin@acme.com
-Password: admin123
+### Demo Accounts
 
-Regular User:
-Email: user@acme.com
-Password: admin123
-\`\`\`
+The application comes with pre-configured demo accounts:
 
-## 📁 Project Structure
+**Admin Account:**
+- Email: `admin@acme.com`
+- Password: `admin123`
+- Permissions: Full CRUD access to projects and tasks
 
-\`\`\`
-projecthub/
-├── backend/                 # Node.js API
-│   ├── config/             # Database, Redis, Kafka config
-│   ├── middleware/         # Auth, error handling
-│   ├── routes/             # API routes
-│   ├── migrations/         # Database migrations
-│   ├── __tests__/          # Unit tests
-│   └── server.js           # Main server file
-├── frontend/               # React application
-│   ├── src/
-│   │   ├── components/     # Reusable components
-│   │   ├── contexts/       # React contexts
-│   │   ├── pages/          # Page components
-│   │   └── App.js          # Main app component
-│   └── public/             # Static assets
-├── docker-compose.yml      # Docker services
-└── README.md              # This file
-\`\`\`
+**User Account:**
+- Email: `user@acme.com`
+- Password: `admin123`
+- Permissions: Read-only access to projects and tasks
 
-## 🔧 Development Setup
-
-### Local Development (without Docker)
-
-1. **Start Infrastructure Services:**
-\`\`\`bash
-# Start only database, Redis, and Kafka
-docker-compose up -d postgres redis zookeeper kafka
-\`\`\`
-
-2. **Backend Setup:**
-\`\`\`bash
-cd backend
-npm install
-npm run migrate  # Run database migrations
-npm run dev      # Start development server
-\`\`\`
-
-3. **Frontend Setup:**
-\`\`\`bash
-cd frontend
-npm install
-npm start        # Start React development server
-\`\`\`
-
-### Environment Variables
-
-Create \`.env\` files in backend directory:
-
-\`\`\`env
-NODE_ENV=development
-PORT=5000
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=projecthub
-DB_USER=admin
-DB_PASSWORD=password123
-REDIS_URL=redis://localhost:6379
-KAFKA_BROKERS=localhost:9092
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-\`\`\`
-
-## 🧪 Testing
-
-### Run Backend Tests
-\`\`\`bash
-cd backend
-npm test
-\`\`\`
-
-### Test Coverage
-The test suite includes:
-- Authentication endpoints
-- Project CRUD operations
-- Task management
-- Role-based access control
-- Error handling
-
-## 📚 API Documentation
+## 📖 API Documentation
 
 ### Authentication Endpoints
 
-#### Register User
-\`\`\`http
-POST /api/auth/register
-Content-Type: application/json
+#### POST /api/auth/register
+Register a new user account.
 
+**Request Body:**
+\`\`\`json
 {
   "email": "user@example.com",
   "password": "password123",
-  "role": "user",
-  "tenant_name": "Company Name"
+  "role": "user" // or "admin"
 }
 \`\`\`
 
-#### Login
-\`\`\`http
-POST /api/auth/login
-Content-Type: application/json
+**Response:**
+\`\`\`json
+{
+  "message": "User created successfully",
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "role": "user",
+    "created_at": "2024-01-01T00:00:00.000Z"
+  },
+  "token": "jwt_token_here"
+}
+\`\`\`
 
+#### POST /api/auth/login
+Authenticate user and receive JWT token.
+
+**Request Body:**
+\`\`\`json
 {
   "email": "user@example.com",
   "password": "password123"
 }
 \`\`\`
 
+**Response:**
+\`\`\`json
+{
+  "message": "Login successful",
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "role": "user",
+    "created_at": "2024-01-01T00:00:00.000Z"
+  },
+  "token": "jwt_token_here"
+}
+\`\`\`
+
 ### Project Endpoints
 
-#### Get All Projects
-\`\`\`http
-GET /api/projects
+#### GET /api/projects
+Get all projects for the authenticated user (cached for 1 minute).
+
+**Headers:**
+\`\`\`
 Authorization: Bearer <jwt_token>
 \`\`\`
 
-#### Create Project (Admin Only)
-\`\`\`http
-POST /api/projects
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
-
+**Response:**
+\`\`\`json
 {
-  "name": "Project Name",
+  "projects": [
+    {
+      "id": 1,
+      "name": "Website Redesign",
+      "description": "Complete redesign of company website",
+      "status": "active",
+      "task_count": 5,
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "updated_at": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "cached": false
+}
+\`\`\`
+
+#### POST /api/projects
+Create a new project (Admin only).
+
+**Headers:**
+\`\`\`
+Authorization: Bearer <jwt_token>
+\`\`\`
+
+**Request Body:**
+\`\`\`json
+{
+  "name": "New Project",
   "description": "Project description",
   "status": "active"
 }
 \`\`\`
 
-#### Update Project (Admin Only)
-\`\`\`http
-PUT /api/projects/:id
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
+#### PUT /api/projects/:id
+Update an existing project (Admin only).
 
-{
-  "name": "Updated Project Name",
-  "description": "Updated description",
-  "status": "completed"
-}
-\`\`\`
-
-#### Delete Project (Admin Only)
-\`\`\`http
-DELETE /api/projects/:id
-Authorization: Bearer <jwt_token>
-\`\`\`
+#### DELETE /api/projects/:id
+Delete a project and all associated tasks (Admin only).
 
 ### Task Endpoints
 
-#### Get Tasks for Project
-\`\`\`http
-GET /api/tasks/project/:projectId
-Authorization: Bearer <jwt_token>
-\`\`\`
+#### GET /api/tasks/project/:projectId
+Get all tasks for a specific project.
 
-#### Create Task (Admin Only)
-\`\`\`http
-POST /api/tasks/project/:projectId
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
+#### POST /api/tasks/project/:projectId
+Create a new task in a project (Admin only).
 
+**Request Body:**
+\`\`\`json
 {
   "title": "Task Title",
   "description": "Task description",
@@ -280,153 +237,166 @@ Content-Type: application/json
 }
 \`\`\`
 
-#### Update Task (Admin Only)
-\`\`\`http
-PUT /api/tasks/:id
-Authorization: Bearer <jwt_token>
-Content-Type: application/json
+#### PUT /api/tasks/:id
+Update an existing task (Admin only).
 
-{
-  "title": "Updated Task Title",
-  "status": "completed",
-  "priority": "high"
-}
+#### DELETE /api/tasks/:id
+Delete a task (Admin only).
+
+## 🧪 Testing
+
+### Backend Tests
+
+Run the test suite:
+\`\`\`bash
+# Enter backend container
+docker-compose exec backend bash
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm test -- --coverage
 \`\`\`
 
-#### Delete Task (Admin Only)
-\`\`\`http
-DELETE /api/tasks/:id
-Authorization: Bearer <jwt_token>
+### Test Coverage
+- Authentication flow testing
+- Project CRUD operations
+- Task management testing
+- Role-based access validation
+- Error handling verification
+
+## 🔧 Development
+
+### Local Development Setup
+
+1. **Backend Development**
+\`\`\`bash
+cd backend
+npm install
+npm run dev
+\`\`\`
+
+2. **Frontend Development**
+\`\`\`bash
+cd frontend
+npm install
+npm start
+\`\`\`
+
+### Environment Variables
+
+**Backend (.env):**
+\`\`\`env
+NODE_ENV=development
+PORT=5000
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=projecthub
+DB_USER=admin
+DB_PASSWORD=password123
+REDIS_URL=redis://redis:6379
+KAFKA_BROKERS=kafka:9092
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+FRONTEND_URL=http://localhost:3000
+\`\`\`
+
+**Frontend (.env):**
+\`\`\`env
+REACT_APP_API_URL=http://localhost:5000/api
 \`\`\`
 
 ## 🔒 Security Features
 
-- **JWT Authentication** with secure token handling
-- **Role-based Access Control** (Admin/User permissions)
-- **Rate Limiting** to prevent abuse
-- **Input Validation** with Joi schemas
-- **SQL Injection Protection** with parameterized queries
-- **CORS Configuration** for cross-origin requests
-- **Helmet.js** for security headers
-- **Password Hashing** with bcrypt
+- **JWT Token Authentication** with secure secret
+- **Password Hashing** using bcrypt with salt rounds
+- **Role-Based Access Control** (Admin/User permissions)
+- **Rate Limiting** (100 requests per 15 minutes)
+- **CORS Protection** with configurable origins
+- **Input Validation** using Joi schemas
+- **SQL Injection Prevention** with parameterized queries
+- **Security Headers** via Helmet.js
 
-## 📊 Caching Strategy
+## 📊 Performance Features
 
-- **Redis Caching** for GET /projects endpoint (1-minute TTL)
-- **Cache Invalidation** on project create/update/delete
-- **Performance Monitoring** with cache hit/miss tracking
+- **Redis Caching** for frequently accessed data (1-minute TTL)
+- **Database Indexing** on commonly queried columns
+- **Connection Pooling** for efficient database usage
+- **Gzip Compression** for API responses
+- **Lazy Loading** for React components
 
-## 🔄 Event-Driven Architecture
+## 🎯 Event-Driven Architecture
 
-Kafka events are published for:
-- User registration and login
-- Project create/update/delete operations
-- Task create/update/delete operations
+The application uses Kafka for event streaming:
 
-Event structure:
+**Published Events:**
+- `project.created` - When a new project is created
+- `project.updated` - When a project is modified
+- `project.deleted` - When a project is removed
+- `task.created` - When a new task is created
+- `task.updated` - When a task is modified
+- `task.deleted` - When a task is removed
+
+**Event Structure:**
 \`\`\`json
 {
-  "eventType": "project.created",
-  "projectId": "123",
-  "tenantId": "456",
-  "userId": "789",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "data": { ... }
+  "id": "resource_id",
+  "name": "resource_name",
+  "action": "created|updated|deleted",
+  "user_id": "user_id",
+  "user_email": "user@example.com",
+  "timestamp": "2024-01-01T00:00:00.000Z"
 }
 \`\`\`
 
-## 🚀 Deployment
+## 🐳 Docker Services
 
-### Production Deployment
+- **postgres**: PostgreSQL 15 database
+- **redis**: Redis 7 for caching
+- **zookeeper**: Zookeeper for Kafka coordination
+- **kafka**: Kafka message broker
+- **backend**: Node.js API server
+- **frontend**: React development server
 
-1. **Update Environment Variables:**
-\`\`\`bash
-# Update docker-compose.yml with production values
-# Change JWT_SECRET, database passwords, etc.
-\`\`\`
+## 🔍 Monitoring & Health Checks
 
-2. **Deploy with Docker Compose:**
-\`\`\`bash
-docker-compose -f docker-compose.yml up -d
-\`\`\`
+All services include health checks:
+- **PostgreSQL**: `pg_isready` command
+- **Redis**: `redis-cli ping` command
+- **Kafka**: Topic listing verification
+- **Backend**: HTTP health endpoint at `/health`
 
-3. **Health Checks:**
-\`\`\`bash
-# Check all services are healthy
-docker-compose ps
+## 🚀 Production Deployment
 
-# Test API health
-curl http://localhost:5000/health
-\`\`\`
+For production deployment:
 
-### Scaling Considerations
-
-- **Database:** Use PostgreSQL replicas for read scaling
-- **Redis:** Implement Redis Cluster for high availability
-- **Kafka:** Add more brokers for event processing
-- **API:** Scale horizontally with load balancer
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Services not starting:**
-\`\`\`bash
-# Check logs
-docker-compose logs <service-name>
-
-# Restart services
-docker-compose restart
-\`\`\`
-
-2. **Database connection issues:**
-\`\`\`bash
-# Check PostgreSQL is running
-docker-compose ps postgres
-
-# Run migrations manually
-docker-compose exec backend npm run migrate
-\`\`\`
-
-3. **Frontend not loading:**
-\`\`\`bash
-# Check if backend is accessible
-curl http://localhost:5000/health
-
-# Rebuild frontend
-docker-compose build frontend
-\`\`\`
+1. **Update environment variables** with production values
+2. **Change JWT secret** to a secure random string
+3. **Configure proper CORS origins**
+4. **Set up SSL/TLS certificates**
+5. **Configure production database**
+6. **Set up monitoring and logging**
+7. **Configure backup strategies**
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Run the test suite
-6. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## 📄 License
+## 📝 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Built with modern web technologies
-- Follows industry best practices
-- Designed for scalability and maintainability
-- Comprehensive testing and documentation
-\`\`\`
-
-## 🔍 Monitoring & Observability
-
-The application includes:
-- Health check endpoints
-- Structured logging
-- Error tracking
-- Performance metrics
-- Event monitoring
+- Built with modern web development best practices
+- Follows RESTful API design principles
+- Implements enterprise-level security measures
+- Uses industry-standard tools and frameworks
 
 ---
 
-**ProjectHub** - Professional Project Management Made Simple
+**ProjectHub** - Demonstrating full-stack development expertise with modern technologies and architectural patterns.
